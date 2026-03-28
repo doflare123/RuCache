@@ -8,9 +8,6 @@ import (
 
 func main() {
 	store := storage.NewStore()
-	go func() {
-
-	}()
 	ttl := 1 * time.Millisecond
 	stats, err := store.Set("test1", "value1", &ttl)
 	if !stats {

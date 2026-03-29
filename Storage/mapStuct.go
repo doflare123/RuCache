@@ -2,7 +2,16 @@ package storage
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
+)
+
+const (
+	snapshotFileName = "snapshot.gob"
+	dirName          = "RuCache"
 )
 
 type Entry struct {
@@ -12,30 +21,33 @@ type Entry struct {
 
 type Storage struct {
 	data map[string]Entry
-	mu sync.RWMutex
+	mu   sync.RWMutex
 }
 
 func NewStore() *Storage {
+	path, _ := os.UserCacheDir()
 	s := &Storage{
 		data: make(map[string]Entry),
 	}
+	if _, err := os.Stat(filepath.Join(path, dirName, snapshotFileName)); err == nil {
+		s.LoadDataFromFile()
+	}
 	s.startWorker()
-	return s 
+	return s
 }
 
-
-func (s *Storage) startWorker(){
-	tiker := time.NewTiker(1000 * time.Millisecond)
+func (s *Storage) startWorker() {
+	ticker := time.NewTicker(time.Second)
 	go func() {
-		for {
-			select{
-			case <- tiker.C
-				for key, entry range s.data{
-					if entry.TTL != nil entry.TTL.Before(time.Now().UTC()){
-						delete(s.data, key)
-					}
+		for range ticker.C {
+			s.mu.Lock()
+			for key, entry := range s.data {
+				if entry.TTL != nil && entry.TTL.Before(time.Now().UTC()) {
+					fmt.Printf("Key %s expired and removed\n", key)
+					delete(s.data, key)
 				}
 			}
+			s.mu.Unlock()
 		}
 	}()
 }
@@ -57,7 +69,7 @@ func (s *Storage) Set(key string, value string, ttl *time.Duration) (bool, error
 }
 
 func (s *Storage) Get(key string) string {
-	s.mu.Rlock()
+	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if key == "" {
 		return "key not be emty"
@@ -70,7 +82,7 @@ func (s *Storage) Get(key string) string {
 		delete(s.data, key)
 		return "Unknown pair of values"
 	}
-	return value.Value + " time to del: " + value.TTL.GoString()
+	return value.Value
 }
 
 func (s *Storage) Del(key string) (bool, error) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	storage "RuCache/Storage"
+	"RuCache/handler"
 	"context"
 	"fmt"
 	"log"
@@ -26,6 +27,9 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	store := storage.NewStore()
+	mux := http.NewServeMux()
+	h := handler.NewHandler(store, isShuttingDown.Load)
+	h.RegisterHandlers(mux)
 
 	//
 	//
@@ -33,38 +37,29 @@ func main() {
 	//
 	//
 
-	// ttl := 1 * time.Millisecond
+	ttl := 15 * time.Second
 	// stats, err := store.Set("test1", "value1", nil)
 	// stats, err = store.Set("test2", "value1", nil)
 	// stats, err = store.Set("test3", "value1", nil)
 	// stats, err = store.Set("test4", "value1", nil)
 	// stats, err = store.Set("test5", "value1", nil)
 	// stats, err = store.Set("test6", "value1", nil)
-	// stats, err := store.Set("test999", "value1", &ttl)
-	// if !stats {
-	// 	fmt.Println(err)
-	// }
+	stats, err := store.Set("test999", "value1", &ttl)
+	if !stats {
+		fmt.Println(err)
+	}
 	// fmt.Println(store.Get("test1"))
 	// stats, err = store.Del("test1")
 	// if !stats {
 	// 	fmt.Println(err)
 	// }
-	// fmt.Println(store.Get("test5"))
+	fmt.Println(store.Get("test5"))
 
 	//
 	//
 	// test code
 	//
 	//
-
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if isShuttingDown.Load() {
-			http.Error(w, "Service is shutting down", http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "OK")
-	})
 
 	ongoingCtx, stopOngoingGracefully := context.WithCancel(context.Background())
 	server := &http.Server{
@@ -72,6 +67,7 @@ func main() {
 		BaseContext: func(_ net.Listener) context.Context {
 			return ongoingCtx
 		},
+		Handler: mux,
 	}
 
 	go func() {

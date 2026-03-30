@@ -68,21 +68,21 @@ func (s *Storage) Set(key string, value string, ttl *time.Duration) (bool, error
 	return true, nil
 }
 
-func (s *Storage) Get(key string) string {
+func (s *Storage) Get(key string) (*string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if key == "" {
-		return "key not be emty"
+		return nil, errors.New("key not be emty")
 	}
 	value, ok := s.data[key]
 	if !ok {
-		return "Unknown pair of values"
+		return nil, errors.New("Unknown pair of values")
 	}
 	if value.TTL != nil && value.TTL.Before(time.Now().UTC()) {
 		delete(s.data, key)
-		return "Unknown pair of values"
+		return nil, errors.New("Unknown pair of values")
 	}
-	return value.Value
+	return &value.Value, nil
 }
 
 func (s *Storage) Del(key string) (bool, error) {

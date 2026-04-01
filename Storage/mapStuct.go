@@ -14,9 +14,18 @@ const (
 	dirName          = "RuCache"
 )
 
+type EntryType string
+
+const (
+	TypeString EntryType = "string"
+	TypeHash   EntryType = "hash"
+)
+
 type Entry struct {
-	Value string
-	TTL   *time.Time
+	Type     EntryType
+	StrValue string
+	Value    map[string]string
+	TTL      *time.Time
 }
 
 type Storage struct {
@@ -63,14 +72,77 @@ func (s *Storage) Set(key string, value string, ttl *time.Duration) (bool, error
 		expAt := time.Now().UTC().Add(*ttl)
 		opts.TTL = &expAt
 	}
-	opts.Value = value
+	if existing, ok := s.data[key]; ok {
+		if existing.Type != TypeString {
+			return false, errors.New("key exists with different type")
+		}
+	}
+	opts.Type = TypeString
+	opts.StrValue = value
 	s.data[key] = opts
 	return true, nil
 }
 
-func (s *Storage) Get(key string) (*string, error) {
+func (s *Storage) HSet(key string, field [][]string, ttl *time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if key == "" || len(field) == 0 {
+		return false, errors.New("key or fields not be emty")
+	}
+	var opts Entry
+	if ttl != nil {
+		expAt := time.Now().UTC().Add(*ttl)
+		opts.TTL = &expAt
+	}
+	opts.Type = TypeHash
+	if existing, ok := s.data[key]; ok {
+		if existing.Type != TypeHash {
+			return false, errors.New("key exists with different type")
+		}
+		opts.Value = existing.Value
+	} else {
+		opts.Value = make(map[string]string)
+	}
+	for _, pair := range field {
+		if len(pair) >= 2 {
+			opts.Value[pair[0]] = pair[1]
+		}
+	}
+	s.data[key] = opts
+	return true, nil
+}
+
+func (s *Storage) HGet(key string, field string) (*string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if key == "" || field == "" {
+		return nil, errors.New("key or field not be emty")
+	}
+	value, err := s.Cheсker(key, field)
+	if err != nil {
+		return nil, err
+	}
+	fieldValue, ok := value.Value[field]
+	if !ok {
+		return nil, errors.New("Unknown pair of values")
+	}
+	return &fieldValue, nil
+}
+
+func (s *Storage) HGetAll(key string) (map[string]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, err := s.CheсkerKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return value.Value, nil
+}
+
+func (s *Storage) Get(key string) (*string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if key == "" {
 		return nil, errors.New("key not be emty")
 	}
@@ -82,7 +154,7 @@ func (s *Storage) Get(key string) (*string, error) {
 		delete(s.data, key)
 		return nil, errors.New("Unknown pair of values")
 	}
-	return &value.Value, nil
+	return &value.StrValue, nil
 }
 
 func (s *Storage) Del(key string) (bool, error) {
@@ -93,4 +165,51 @@ func (s *Storage) Del(key string) (bool, error) {
 	}
 	delete(s.data, key)
 	return true, nil
+}
+
+func (s *Storage) HDel(key string, field string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.Cheсker(key, field)
+	if err != nil {
+		return false, err
+	}
+	delete(s.data[key].Value, field)
+	return true, nil
+}
+
+func (s *Storage) Cheсker(key string, field string) (*Entry, error) {
+	if key == "" || field == "" {
+		return nil, errors.New("key or field not be emty")
+	}
+	value, ok := s.data[key]
+	if !ok {
+		return nil, errors.New("Unknown pair of values")
+	}
+	if value.Type != TypeHash {
+		return nil, errors.New("key exists with different type")
+	}
+	if value.TTL != nil && value.TTL.Before(time.Now().UTC()) {
+		delete(s.data, key)
+		return nil, errors.New("Unknown pair of values")
+	}
+	return &value, nil
+}
+
+func (s *Storage) CheсkerKey(key string) (*Entry, error) {
+	if key == "" {
+		return nil, errors.New("key or field not be emty")
+	}
+	value, ok := s.data[key]
+	if !ok {
+		return nil, errors.New("Unknown pair of values")
+	}
+	if value.Type != TypeHash {
+		return nil, errors.New("key exists with different type")
+	}
+	if value.TTL != nil && value.TTL.Before(time.Now().UTC()) {
+		delete(s.data, key)
+		return nil, errors.New("Unknown pair of values")
+	}
+	return &value, nil
 }
